@@ -47,6 +47,28 @@ func main() {
 
 ```
 
+## 执行结果
+```shell
+root@hcss-ecs-5ed3:/tools/terst66# go run .
+词法序列Token:
+[0] [LCURLY({)](0,1)
+[1] [LITERAL_INT:1](1,2)
+[2] [COMMA(,)](2,3)
+[3] [LITERAL_INT:2](3,4)
+[4] [COMMA(,)](4,5)
+[5] [LITERAL_INT:3](5,6)
+[6] [COMMA(,)](6,7)
+[7] [LITERAL_INT:4](7,8)
+[8] [RCURLY(})](8,9)
+
+=== 词法解析: 1 ===
+=== 完整 AST 树形结构 ===
+节点类型: InlineList, 表达式片段: '{1,2,3,4}'
+  节点类型: Literal, 表达式片段: '1'
+  节点类型: Literal, 表达式片段: '2'
+  节点类型: Literal, 表达式片段: '3'
+  节点类型: Literal, 表达式片段: '4'
+```
 
 ## 文件结构
 
