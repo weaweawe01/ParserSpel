@@ -44,11 +44,6 @@ func (p *InternalSpelExpressionParser) DoParseExpression(expressionString string
 	p.TokenStreamPointer = 0
 	p.ConstructedNodes = make([]SpelNode, 0)
 
-	// Print token stream (matching Java debug output)
-	for count, token := range p.TokenStream {
-		fmt.Printf("[%d] %s\n", count, token)
-	}
-
 	// Parse the tokens into an AST
 	ast, err := p.eatExpression()
 	fmt.Println("AST->", ast)
