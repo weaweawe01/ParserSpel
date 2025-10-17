@@ -30,7 +30,7 @@ func main() {
 			fmt.Errorf("tokenization failed: %v", err)
 			return
 		}
-		fmt.Println("语法解析结果:")
+		fmt.Println("词法序列Token:")
 		for count, token := range tokens {
 			fmt.Printf("[%d] %s\n", count, token)
 		}
@@ -43,6 +43,7 @@ func main() {
 		}
 	}
 }
+
 
 ```
 
