@@ -21,16 +21,24 @@ func main() {
 	parser := ast.NewSpelExpressionParser()
 	// 测试普通表达式
 	normalExpressions := []string{
-		"T(java.lang.Runtime).getRuntime().exec('id')",
+		"{1,2,3,4}",
 	}
 	for i, expr := range normalExpressions {
-		fmt.Printf("\n=== 表达式测试 %d ===\n", i+1)
-		fmt.Printf("表达式: %s\n", expr)
+		tokenizer := ast.NewTokenizer(expr)
+		tokens, err := tokenizer.Process()
+		if err != nil {
+			fmt.Errorf("tokenization failed: %v", err)
+			return
+		}
+		fmt.Println("语法解析结果:")
+		for count, token := range tokens {
+			fmt.Printf("[%d] %s\n", count, token)
+		}
+		fmt.Printf("\n=== 词法解析: %d ===", i+1)
 		result, err := parser.ParseExpressionWithContext(expr, nil)
 		if err != nil {
 			fmt.Printf("❌ 解析错误: %v\n", err)
 		} else {
-			fmt.Printf("   ✅ 解析成功!\n")
 			ast.PrintASTWithTitle(result.AST, "完整 AST 树形结构")
 		}
 	}

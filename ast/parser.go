@@ -106,10 +106,6 @@ func (p *InternalSpelExpressionParser) ParseExpression(expressionString string) 
 	if err != nil {
 		return nil, fmt.Errorf("tokenization failed: %v", err)
 	}
-	for token, v := range tokens {
-		fmt.Printf("[%d] %s\n", token, v)
-	}
-
 	p.TokenStream = tokens
 	p.TokenStreamLength = len(tokens)
 	p.TokenStreamPointer = 0
