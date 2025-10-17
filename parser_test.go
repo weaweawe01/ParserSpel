@@ -737,6 +737,30 @@ func getNodeTypeName(node ast.SpelNode) string {
 		return "ArrayConstructor"
 	case *ast.TemplateExpression:
 		return "TemplateExpression"
+	case *ast.InlineList:
+		return "InlineList"
+	case *ast.InlineMap:
+		return "InlineMap"
+	case *ast.Indexer:
+		return "Indexer"
+	case *ast.Assign:
+		return "Assign"
+	case *ast.OpLT:
+		return "OpLT"
+	case *ast.OpGT:
+		return "OpGT"
+	case *ast.OpPlus:
+		return "OpPlus"
+	case *ast.Selection:
+		return "Selection"
+	case *ast.Projection:
+		return "Projection"
+	case *ast.FunctionReference:
+		return "FunctionReference"
+	case *ast.Ternary:
+		return "Ternary"
+	case *ast.Elvis:
+		return "Elvis"
 	default:
 		return fmt.Sprintf("%T", node)
 	}
