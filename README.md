@@ -3,6 +3,43 @@
 这是完整的 Spring Expression Language (SpEL) 解析器的 Go 语言版本，从 Java 原版转换而来。包含完整的词法分析和语法分析功能。
 基于（spring-expression-6.2.11.jar）版本开发
 
+
+## 安装
+```go
+go get github.com/weaweawe01/ParserSpel/ast
+
+```
+## 使用案例
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/weaweawe01/ParserSpel/ast"
+)
+
+func main() {
+	parser := ast.NewSpelExpressionParser()
+	// 测试普通表达式
+	normalExpressions := []string{
+		"T(java.lang.Runtime).getRuntime().exec('id')",
+	}
+	for i, expr := range normalExpressions {
+		fmt.Printf("\n=== 表达式测试 %d ===\n", i+1)
+		fmt.Printf("表达式: %s\n", expr)
+		result, err := parser.ParseExpressionWithContext(expr, nil)
+		if err != nil {
+			fmt.Printf("❌ 解析错误: %v\n", err)
+		} else {
+			fmt.Printf("   ✅ 解析成功!\n")
+			ast.PrintASTWithTitle(result.AST, "完整 AST 树形结构")
+		}
+	}
+}
+
+```
+
+
 ## 文件结构
 
 ```
