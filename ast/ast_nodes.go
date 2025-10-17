@@ -611,3 +611,457 @@ func (q *QualifiedIdentifier) GetTypedValue(state *ExpressionState) (*TypedValue
 func (q *QualifiedIdentifier) ToStringAST() string {
 	return strings.Join(q.Qualifiers, ".")
 }
+
+// InlineList represents a list literal like {1,2,3}
+type InlineList struct {
+	*SpelNodeImpl
+	Elements []SpelNode
+}
+
+func NewInlineList(elements []SpelNode, startPos, endPos int) *InlineList {
+	return &InlineList{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, elements...),
+		Elements:     elements,
+	}
+}
+
+func (i *InlineList) GetValue(state *ExpressionState) (interface{}, error) {
+	// Return a slice of element values
+	var elementValues []interface{}
+	for _, element := range i.Elements {
+		val, err := element.GetValue(state)
+		if err != nil {
+			return nil, err
+		}
+		elementValues = append(elementValues, val)
+	}
+	return elementValues, nil
+}
+
+func (i *InlineList) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := i.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (i *InlineList) ToStringAST() string {
+	var elements []string
+	for _, element := range i.Elements {
+		elements = append(elements, element.ToStringAST())
+	}
+	return "{" + strings.Join(elements, ",") + "}"
+}
+
+// Indexer represents indexing operations like array[index] or list[index]
+type Indexer struct {
+	*SpelNodeImpl
+	IndexExpression SpelNode
+}
+
+func NewIndexer(indexExpression SpelNode, startPos, endPos int) *Indexer {
+	children := []SpelNode{}
+	if indexExpression != nil {
+		children = append(children, indexExpression)
+	}
+	return &Indexer{
+		SpelNodeImpl:    NewSpelNodeImpl(startPos, endPos, children...),
+		IndexExpression: indexExpression,
+	}
+}
+
+func (i *Indexer) GetValue(state *ExpressionState) (interface{}, error) {
+	// Placeholder implementation - would need context about the indexed object
+	return nil, fmt.Errorf("indexer evaluation not yet implemented")
+}
+
+func (i *Indexer) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := i.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (i *Indexer) ToStringAST() string {
+	if i.IndexExpression != nil {
+		return "[" + i.IndexExpression.ToStringAST() + "]"
+	}
+	return "[]"
+}
+
+// Assign represents assignment expressions like variable = value
+type Assign struct {
+	*SpelNodeImpl
+	Left  SpelNode // Left-hand side (usually PropertyOrFieldReference)
+	Right SpelNode // Right-hand side (value to assign)
+}
+
+func NewAssign(left, right SpelNode, startPos, endPos int) *Assign {
+	children := []SpelNode{}
+	if left != nil {
+		children = append(children, left)
+	}
+	if right != nil {
+		children = append(children, right)
+	}
+	return &Assign{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, children...),
+		Left:         left,
+		Right:        right,
+	}
+}
+
+func (a *Assign) GetValue(state *ExpressionState) (interface{}, error) {
+	// Placeholder implementation - would set the value and return it
+	rightValue, err := a.Right.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	// In a real implementation, this would assign the value to the left-hand side
+	return rightValue, nil
+}
+
+func (a *Assign) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := a.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (a *Assign) ToStringAST() string {
+	left := ""
+	if a.Left != nil {
+		left = a.Left.ToStringAST()
+	}
+	right := ""
+	if a.Right != nil {
+		right = a.Right.ToStringAST()
+	}
+	return left + " = " + right
+}
+
+// Selection represents selection expressions like collection.?[criteria]
+type Selection struct {
+	*SpelNodeImpl
+	NullSafe bool     // true for .?[], false for .![...]
+	Criteria SpelNode // The selection criteria expression
+}
+
+func NewSelection(nullSafe bool, criteria SpelNode, startPos, endPos int) *Selection {
+	children := []SpelNode{}
+	if criteria != nil {
+		children = append(children, criteria)
+	}
+	return &Selection{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, children...),
+		NullSafe:     nullSafe,
+		Criteria:     criteria,
+	}
+}
+
+func (s *Selection) GetValue(state *ExpressionState) (interface{}, error) {
+	// Placeholder implementation - would filter the collection based on criteria
+	return nil, fmt.Errorf("selection evaluation not yet implemented")
+}
+
+func (s *Selection) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := s.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (s *Selection) ToStringAST() string {
+	criteriaStr := ""
+	if s.Criteria != nil {
+		criteriaStr = s.Criteria.ToStringAST()
+	}
+	if s.NullSafe {
+		return ".?[" + criteriaStr + "]"
+	}
+	return ".![" + criteriaStr + "]"
+}
+
+// FunctionReference represents function calls like #functionName(args...)
+type FunctionReference struct {
+	*SpelNodeImpl
+	FunctionName string
+	Arguments    []SpelNode
+}
+
+func NewFunctionReference(functionName string, arguments []SpelNode, startPos, endPos int) *FunctionReference {
+	return &FunctionReference{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, arguments...),
+		FunctionName: functionName,
+		Arguments:    arguments,
+	}
+}
+
+func (f *FunctionReference) GetValue(state *ExpressionState) (interface{}, error) {
+	// Placeholder implementation - would call the registered function
+	return nil, fmt.Errorf("function evaluation not yet implemented")
+}
+
+func (f *FunctionReference) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := f.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (f *FunctionReference) ToStringAST() string {
+	var args []string
+	for _, arg := range f.Arguments {
+		args = append(args, arg.ToStringAST())
+	}
+	return "#" + f.FunctionName + "(" + strings.Join(args, ", ") + ")"
+}
+
+// Ternary represents ternary conditional expressions like condition ? trueValue : falseValue
+type Ternary struct {
+	*SpelNodeImpl
+	Condition  SpelNode // The condition expression
+	TrueValue  SpelNode // Value returned if condition is true
+	FalseValue SpelNode // Value returned if condition is false
+}
+
+func NewTernary(condition, trueValue, falseValue SpelNode, startPos, endPos int) *Ternary {
+	children := []SpelNode{}
+	if condition != nil {
+		children = append(children, condition)
+	}
+	if trueValue != nil {
+		children = append(children, trueValue)
+	}
+	if falseValue != nil {
+		children = append(children, falseValue)
+	}
+	return &Ternary{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, children...),
+		Condition:    condition,
+		TrueValue:    trueValue,
+		FalseValue:   falseValue,
+	}
+}
+
+func (t *Ternary) GetValue(state *ExpressionState) (interface{}, error) {
+	// Evaluate condition
+	conditionValue, err := t.Condition.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to boolean
+	var conditionBool bool
+	switch v := conditionValue.(type) {
+	case bool:
+		conditionBool = v
+	case string:
+		conditionBool = v != ""
+	case int:
+		conditionBool = v != 0
+	default:
+		conditionBool = v != nil
+	}
+
+	// Return appropriate value
+	if conditionBool {
+		return t.TrueValue.GetValue(state)
+	} else {
+		return t.FalseValue.GetValue(state)
+	}
+}
+
+func (t *Ternary) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := t.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (t *Ternary) ToStringAST() string {
+	condition := ""
+	if t.Condition != nil {
+		condition = t.Condition.ToStringAST()
+	}
+	trueVal := ""
+	if t.TrueValue != nil {
+		trueVal = t.TrueValue.ToStringAST()
+	}
+	falseVal := ""
+	if t.FalseValue != nil {
+		falseVal = t.FalseValue.ToStringAST()
+	}
+	return condition + " ? " + trueVal + " : " + falseVal
+}
+
+// Elvis represents Elvis operator expressions like value ?: defaultValue
+type Elvis struct {
+	*SpelNodeImpl
+	Expression   SpelNode // The expression to evaluate
+	DefaultValue SpelNode // Default value if expression is null/empty
+}
+
+func NewElvis(expression, defaultValue SpelNode, startPos, endPos int) *Elvis {
+	children := []SpelNode{}
+	if expression != nil {
+		children = append(children, expression)
+	}
+	if defaultValue != nil {
+		children = append(children, defaultValue)
+	}
+	return &Elvis{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, children...),
+		Expression:   expression,
+		DefaultValue: defaultValue,
+	}
+}
+
+func (e *Elvis) GetValue(state *ExpressionState) (interface{}, error) {
+	// Evaluate the main expression
+	expressionValue, err := e.Expression.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the value is "empty" (null, empty string, zero, false)
+	isEmpty := false
+	switch v := expressionValue.(type) {
+	case nil:
+		isEmpty = true
+	case string:
+		isEmpty = v == ""
+	case int:
+		isEmpty = v == 0
+	case bool:
+		isEmpty = !v
+	default:
+		isEmpty = expressionValue == nil
+	}
+
+	// Return default value if empty, otherwise return the expression value
+	if isEmpty {
+		return e.DefaultValue.GetValue(state)
+	} else {
+		return expressionValue, nil
+	}
+}
+
+func (e *Elvis) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := e.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (e *Elvis) ToStringAST() string {
+	expression := ""
+	if e.Expression != nil {
+		expression = e.Expression.ToStringAST()
+	}
+	defaultVal := ""
+	if e.DefaultValue != nil {
+		defaultVal = e.DefaultValue.ToStringAST()
+	}
+	return expression + " ?: " + defaultVal
+}
+
+// Projection represents projection expressions like collection.![expression]
+type Projection struct {
+	*SpelNodeImpl
+	ProjectionExpression SpelNode // The expression to project from each element
+}
+
+func NewProjection(projectionExpression SpelNode, startPos, endPos int) *Projection {
+	children := []SpelNode{}
+	if projectionExpression != nil {
+		children = append(children, projectionExpression)
+	}
+	return &Projection{
+		SpelNodeImpl:         NewSpelNodeImpl(startPos, endPos, children...),
+		ProjectionExpression: projectionExpression,
+	}
+}
+
+func (p *Projection) GetValue(state *ExpressionState) (interface{}, error) {
+	// Placeholder implementation - would project the expression over a collection
+	return nil, fmt.Errorf("projection evaluation not yet implemented")
+}
+
+func (p *Projection) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := p.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (p *Projection) ToStringAST() string {
+	projectionStr := ""
+	if p.ProjectionExpression != nil {
+		projectionStr = p.ProjectionExpression.ToStringAST()
+	}
+	return ".![" + projectionStr + "]"
+}
+
+// InlineMap represents a map literal like {key1:value1,key2:value2}
+type InlineMap struct {
+	*SpelNodeImpl
+	KeyValuePairs []KeyValuePair
+}
+
+type KeyValuePair struct {
+	Key   SpelNode
+	Value SpelNode
+}
+
+func NewInlineMap(pairs []KeyValuePair, startPos, endPos int) *InlineMap {
+	var children []SpelNode
+	for _, pair := range pairs {
+		children = append(children, pair.Key, pair.Value)
+	}
+	return &InlineMap{
+		SpelNodeImpl:  NewSpelNodeImpl(startPos, endPos, children...),
+		KeyValuePairs: pairs,
+	}
+}
+
+func (i *InlineMap) GetValue(state *ExpressionState) (interface{}, error) {
+	// Return a map of key-value pairs
+	result := make(map[interface{}]interface{})
+	for _, pair := range i.KeyValuePairs {
+		key, err := pair.Key.GetValue(state)
+		if err != nil {
+			return nil, err
+		}
+		value, err := pair.Value.GetValue(state)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = value
+	}
+	return result, nil
+}
+
+func (i *InlineMap) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	val, err := i.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(val), nil
+}
+
+func (i *InlineMap) ToStringAST() string {
+	var pairs []string
+	for _, pair := range i.KeyValuePairs {
+		pairs = append(pairs, pair.Key.ToStringAST()+":"+pair.Value.ToStringAST())
+	}
+	return "{" + strings.Join(pairs, ",") + "}"
+}

@@ -60,6 +60,25 @@ func (p *InternalSpelExpressionParser) DoParseExpression(expressionString string
 		return nil, fmt.Errorf("empty expression - OOD")
 	}
 
+	// Check if there's an assignment operator after the first expression
+	if p.peekToken(ASSIGN) {
+		p.takeToken() // consume '='
+
+		// Parse the right-hand side expression
+		rightExpr, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse assignment right-hand side: %v", err)
+		}
+
+		if rightExpr == nil {
+			return nil, fmt.Errorf("expected expression after '='")
+		}
+
+		// Create assignment node
+		assignNode := NewAssign(ast, rightExpr, ast.GetStartPosition(), rightExpr.GetEndPosition())
+		ast = assignNode
+	}
+
 	// Print the AST (matching Java debug output)
 	fmt.Println(ast.ToStringAST())
 
@@ -87,6 +106,10 @@ func (p *InternalSpelExpressionParser) ParseExpression(expressionString string) 
 	if err != nil {
 		return nil, fmt.Errorf("tokenization failed: %v", err)
 	}
+	for token, v := range tokens {
+		fmt.Printf("[%d] %s\n", token, v)
+	}
+
 	p.TokenStream = tokens
 	p.TokenStreamLength = len(tokens)
 	p.TokenStreamPointer = 0
@@ -102,6 +125,25 @@ func (p *InternalSpelExpressionParser) ParseExpression(expressionString string) 
 		return nil, fmt.Errorf("empty expression")
 	}
 
+	// Check if there's an assignment operator after the first expression
+	if p.peekToken(ASSIGN) {
+		p.takeToken() // consume '='
+
+		// Parse the right-hand side expression
+		rightExpr, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse assignment right-hand side: %v", err)
+		}
+
+		if rightExpr == nil {
+			return nil, fmt.Errorf("expected expression after '='")
+		}
+
+		// Create assignment node
+		assignNode := NewAssign(ast, rightExpr, ast.GetStartPosition(), rightExpr.GetEndPosition())
+		ast = assignNode
+	}
+
 	// Check if all tokens were consumed
 	if p.TokenStreamPointer < p.TokenStreamLength {
 		return nil, fmt.Errorf("unexpected tokens after expression")
@@ -112,7 +154,71 @@ func (p *InternalSpelExpressionParser) ParseExpression(expressionString string) 
 
 // eatExpression parses the top-level expression
 func (p *InternalSpelExpressionParser) eatExpression() (SpelNode, error) {
-	return p.eatLogicalOrExpression()
+	return p.eatTernaryExpression()
+}
+
+// eatTernaryExpression parses ternary conditional expressions (condition ? trueValue : falseValue)
+func (p *InternalSpelExpressionParser) eatTernaryExpression() (SpelNode, error) {
+	expr, err := p.eatLogicalOrExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for Elvis operator (?:)
+	if p.peekToken(ELVIS) {
+		p.takeToken() // consume '?:'
+
+		// Parse default value
+		defaultValue, err := p.eatLogicalOrExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse default value in Elvis expression: %v", err)
+		}
+
+		if defaultValue == nil {
+			return nil, fmt.Errorf("expected expression after '?:' in Elvis operator")
+		}
+
+		// Create Elvis node
+		elvis := NewElvis(expr, defaultValue, expr.GetStartPosition(), defaultValue.GetEndPosition())
+		return elvis, nil
+	}
+
+	// Check for ternary operator
+	if p.peekToken(QMARK) {
+		p.takeToken() // consume '?'
+
+		// Parse true value
+		trueValue, err := p.eatLogicalOrExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse true value in ternary expression: %v", err)
+		}
+
+		if trueValue == nil {
+			return nil, fmt.Errorf("expected expression after '?' in ternary")
+		}
+
+		// Expect colon
+		if !p.peekToken(COLON) {
+			return nil, fmt.Errorf("expected ':' in ternary expression")
+		}
+		p.takeToken() // consume ':'
+
+		// Parse false value
+		falseValue, err := p.eatLogicalOrExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse false value in ternary expression: %v", err)
+		}
+
+		if falseValue == nil {
+			return nil, fmt.Errorf("expected expression after ':' in ternary")
+		}
+
+		// Create ternary node
+		ternary := NewTernary(expr, trueValue, falseValue, expr.GetStartPosition(), falseValue.GetEndPosition())
+		return ternary, nil
+	}
+
+	return expr, nil
 }
 
 // eatLogicalOrExpression parses logical OR expressions
@@ -367,6 +473,14 @@ func (p *InternalSpelExpressionParser) eatStartNode() (SpelNode, error) {
 		return p.pop(), nil
 	}
 
+	if p.maybeEatInlineCollection() {
+		return p.pop(), nil
+	}
+
+	if p.maybeEatMethodCall() {
+		return p.pop(), nil
+	}
+
 	if p.maybeEatIdentifier() {
 		return p.pop(), nil
 	}
@@ -381,16 +495,24 @@ func (p *InternalSpelExpressionParser) eatNode() (SpelNode, error) {
 	}
 
 	if p.peekToken(LSQUARE) {
-		// Handle indexing - simplified implementation
-		p.takeToken() // consume '['
-		// For now, just skip to the closing bracket
-		for !p.peekToken(RSQUARE) && p.TokenStreamPointer < p.TokenStreamLength {
-			p.takeToken()
+		// Handle indexing properly
+		startToken := p.takeToken() // consume '['
+
+		// Parse the index expression
+		indexExpr, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse index expression: %v", err)
 		}
-		if p.peekToken(RSQUARE) {
-			p.takeToken() // consume ']'
+
+		// Expect closing bracket
+		if !p.peekToken(RSQUARE) {
+			return nil, fmt.Errorf("expected ']' after index expression")
 		}
-		return nil, nil // Skip indexing for now
+		endToken := p.takeToken() // consume ']'
+
+		// Create indexer node
+		indexer := NewIndexer(indexExpr, startToken.StartPos, endToken.EndPos)
+		return indexer, nil
 	}
 
 	// Handle method calls
@@ -405,6 +527,62 @@ func (p *InternalSpelExpressionParser) eatNode() (SpelNode, error) {
 func (p *InternalSpelExpressionParser) eatDottedNode() (SpelNode, error) {
 	token := p.takeToken() // consume '.' or '?.'
 	nullSafeNavigation := (token.Kind == SAFE_NAVI)
+
+	// Check for selection expressions like .?[criteria] or .![criteria]
+	if p.peekToken(SELECT) {
+		p.takeToken() // consume '?['
+
+		// Parse the selection criteria
+		criteria, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("error parsing selection criteria: %v", err)
+		}
+
+		if criteria == nil {
+			return nil, fmt.Errorf("expected criteria in selection expression")
+		}
+
+		// Expect closing bracket
+		if !p.peekToken(RSQUARE) {
+			return nil, fmt.Errorf("expected ']' to close selection expression")
+		}
+
+		endToken := p.takeToken() // consume ']'
+		endPos := endToken.EndPos
+
+		// Create selection node (.?[ is always null-safe selection)
+		selection := NewSelection(true, criteria, token.StartPos, endPos)
+		p.push(selection)
+		return selection, nil
+	}
+
+	// Check for projection expressions like .![expression]
+	if p.peekToken(PROJECT) {
+		p.takeToken() // consume '!['
+
+		// Parse the projection expression
+		projectionExpr, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("error parsing projection expression: %v", err)
+		}
+
+		if projectionExpr == nil {
+			return nil, fmt.Errorf("expected expression in projection")
+		}
+
+		// Expect closing bracket
+		if !p.peekToken(RSQUARE) {
+			return nil, fmt.Errorf("expected ']' to close projection expression")
+		}
+
+		endToken := p.takeToken() // consume ']'
+		endPos := endToken.EndPos
+
+		// Create projection node
+		projection := NewProjection(projectionExpr, token.StartPos, endPos)
+		p.push(projection)
+		return projection, nil
+	}
 
 	if p.peekToken(IDENTIFIER) {
 		identToken := p.takeToken()
@@ -568,9 +746,56 @@ func (p *InternalSpelExpressionParser) maybeEatVariableReference() bool {
 	identToken := p.takeToken()
 	varName := identToken.StringValue()
 
-	varRef := NewVariableReference(varName, hashToken.StartPos, identToken.EndPos)
-	p.push(varRef)
-	return true
+	// Check if this is a function call (#identifier(...))
+	if p.peekToken(LPAREN) {
+		// This is a function call, not a variable reference
+		p.takeToken() // consume '('
+
+		var arguments []SpelNode
+
+		// Handle empty argument list
+		if p.peekToken(RPAREN) {
+			endToken := p.takeToken() // consume ')'
+			endPos := endToken.EndPos
+			funcRef := NewFunctionReference(varName, arguments, hashToken.StartPos, endPos)
+			p.push(funcRef)
+			return true
+		}
+
+		// Parse arguments separated by commas
+		for {
+			arg, err := p.eatExpression()
+			if err != nil {
+				return false
+			}
+			if arg == nil {
+				return false
+			}
+			arguments = append(arguments, arg)
+
+			if p.peekToken(COMMA) {
+				p.takeToken() // consume ','
+				continue
+			}
+			break
+		}
+
+		if !p.peekToken(RPAREN) {
+			return false
+		}
+
+		endToken := p.takeToken() // consume ')'
+		endPos := endToken.EndPos
+
+		funcRef := NewFunctionReference(varName, arguments, hashToken.StartPos, endPos)
+		p.push(funcRef)
+		return true
+	} else {
+		// This is a variable reference
+		varRef := NewVariableReference(varName, hashToken.StartPos, identToken.EndPos)
+		p.push(varRef)
+		return true
+	}
 }
 
 func (p *InternalSpelExpressionParser) maybeEatNullReference() bool {
@@ -602,7 +827,177 @@ func (p *InternalSpelExpressionParser) maybeEatIdentifier() bool {
 	return true
 }
 
-// Token manipulation methods
+// maybeEatInlineCollection parses inline collections like {1,2,3} or {key:value}
+func (p *InternalSpelExpressionParser) maybeEatInlineCollection() bool {
+	if !p.peekToken(LCURLY) {
+		return false
+	}
+
+	startToken := p.takeToken() // consume '{'
+
+	// Handle empty collection {}
+	if p.peekToken(RCURLY) {
+		endToken := p.takeToken() // consume '}'
+		// Default to empty list for {}
+		inlineList := NewInlineList([]SpelNode{}, startToken.StartPos, endToken.EndPos)
+		p.push(inlineList)
+		return true
+	}
+
+	// Parse first element to determine if it's a list or map
+	firstExpr, err := p.eatExpression()
+	if err != nil {
+		return false
+	}
+
+	// Check if this is a map (key:value format)
+	if p.peekToken(COLON) {
+		// This is a map literal
+		p.takeToken() // consume ':'
+
+		// Parse first value
+		firstValue, err := p.eatExpression()
+		if err != nil {
+			return false
+		}
+
+		pairs := []KeyValuePair{
+			{Key: firstExpr, Value: firstValue},
+		}
+
+		// Parse remaining key-value pairs
+		for p.peekToken(COMMA) {
+			p.takeToken() // consume ','
+
+			// Parse key
+			key, err := p.eatExpression()
+			if err != nil {
+				return false
+			}
+
+			// Expect colon
+			if !p.peekToken(COLON) {
+				return false
+			}
+			p.takeToken() // consume ':'
+
+			// Parse value
+			value, err := p.eatExpression()
+			if err != nil {
+				return false
+			}
+
+			pairs = append(pairs, KeyValuePair{Key: key, Value: value})
+		}
+
+		// Expect closing brace
+		if !p.peekToken(RCURLY) {
+			return false
+		}
+		endToken := p.takeToken() // consume '}'
+
+		inlineMap := NewInlineMap(pairs, startToken.StartPos, endToken.EndPos)
+		p.push(inlineMap)
+		return true
+	} else {
+		// This is a list literal
+		elements := []SpelNode{firstExpr}
+
+		// Parse remaining elements
+		for p.peekToken(COMMA) {
+			p.takeToken() // consume ','
+			expr, err := p.eatExpression()
+			if err != nil {
+				return false
+			}
+			elements = append(elements, expr)
+		}
+
+		// Expect closing brace
+		if !p.peekToken(RCURLY) {
+			return false
+		}
+		endToken := p.takeToken() // consume '}'
+
+		inlineList := NewInlineList(elements, startToken.StartPos, endToken.EndPos)
+		p.push(inlineList)
+		return true
+	}
+}
+
+// maybeEatMethodCall parses direct method calls like methodName(args...)
+func (p *InternalSpelExpressionParser) maybeEatMethodCall() bool {
+	// Look ahead to see if we have IDENTIFIER followed by LPAREN
+	if !p.peekToken(IDENTIFIER) {
+		return false
+	}
+
+	// Save current position to backtrack if needed
+	savedPos := p.TokenStreamPointer
+
+	// Check if next token after identifier is LPAREN
+	p.TokenStreamPointer++
+	if p.TokenStreamPointer >= p.TokenStreamLength || !p.peekToken(LPAREN) {
+		// Backtrack and return false
+		p.TokenStreamPointer = savedPos
+		return false
+	}
+
+	// Restore position and parse as method call
+	p.TokenStreamPointer = savedPos
+
+	// Parse method name
+	nameToken := p.takeToken()
+	methodName := nameToken.StringValue()
+
+	// Parse method arguments
+	if !p.peekToken(LPAREN) {
+		return false
+	}
+
+	startPos := nameToken.StartPos
+	p.takeToken() // consume '('
+
+	var arguments []SpelNode
+
+	// Handle empty argument list
+	if p.peekToken(RPAREN) {
+		endToken := p.takeToken() // consume ')'
+		endPos := endToken.EndPos
+		methodRef := NewMethodReference(false, methodName, arguments, startPos, endPos)
+		p.push(methodRef)
+		return true
+	}
+
+	// Parse arguments separated by commas
+	for {
+		arg, err := p.eatExpression()
+		if err != nil {
+			return false
+		}
+		if arg == nil {
+			return false
+		}
+		arguments = append(arguments, arg)
+
+		if p.peekToken(COMMA) {
+			p.takeToken() // consume ','
+			continue
+		}
+		break
+	}
+
+	if !p.peekToken(RPAREN) {
+		return false
+	}
+
+	endToken := p.takeToken() // consume ')'
+	endPos := endToken.EndPos
+
+	methodRef := NewMethodReference(false, methodName, arguments, startPos, endPos)
+	p.push(methodRef)
+	return true
+} // Token manipulation methods
 func (p *InternalSpelExpressionParser) peekToken(desiredKind TokenKind) bool {
 	token := p.peekTokenRaw()
 	return token != nil && token.Kind == desiredKind
