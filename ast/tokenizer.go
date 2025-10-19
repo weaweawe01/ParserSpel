@@ -278,11 +278,17 @@ func (t *Tokenizer) lexNumericLiteral(firstCharIsZero bool) error {
 
 			if t.pos < len(t.charsToProcess) && t.isChar('L', 'l') {
 				data := t.subarray(hexStart, t.pos)
-				t.pushHexIntToken(data, true, start, t.pos)
+				err := t.pushHexIntToken(data, true, start, t.pos)
+				if err != nil {
+					return err
+				}
 				t.pos++
 			} else {
 				data := t.subarray(hexStart, t.pos)
-				t.pushHexIntToken(data, false, start, t.pos)
+				err := t.pushHexIntToken(data, false, start, t.pos)
+				if err != nil {
+					return err
+				}
 			}
 			return nil
 		}

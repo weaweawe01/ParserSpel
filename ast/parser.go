@@ -496,6 +496,10 @@ func (p *InternalSpelExpressionParser) eatStartNode() (SpelNode, error) {
 		return p.pop(), nil
 	}
 
+	if p.maybeEatInlineList() {
+		return p.pop(), nil
+	}
+
 	if p.maybeEatMethodCall() {
 		return p.pop(), nil
 	}
@@ -517,7 +521,26 @@ func (p *InternalSpelExpressionParser) eatNode() (SpelNode, error) {
 		// Handle indexing properly
 		startToken := p.takeToken() // consume '['
 
-		// Parse the index expression
+		// Check for nested indexing like [[expr]]
+		if p.peekToken(LSQUARE) {
+			// This is nested indexing, parse recursively
+			nestedIndexer, err := p.eatNode() // This will parse the nested [expr]
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse nested index expression: %v", err)
+			}
+
+			// Expect closing bracket
+			if !p.peekToken(RSQUARE) {
+				return nil, fmt.Errorf("expected ']' after nested index expression")
+			}
+			endToken := p.takeToken() // consume ']'
+
+			// Create indexer node with nested indexer
+			indexer := NewIndexer(nestedIndexer, startToken.StartPos, endToken.EndPos)
+			return indexer, nil
+		}
+
+		// Parse the index expression normally
 		indexExpr, err := p.eatExpression()
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse index expression: %v", err)
@@ -724,6 +747,10 @@ func (p *InternalSpelExpressionParser) eatDottedNode() (SpelNode, error) {
 
 				if p.peekToken(COMMA) {
 					p.takeToken() // consume ','
+					// Check for trailing comma (comma followed by closing parenthesis)
+					if p.peekToken(RPAREN) {
+						break // Allow trailing comma
+					}
 					continue
 				}
 				break
@@ -1055,6 +1082,61 @@ func (p *InternalSpelExpressionParser) maybeEatInlineCollection() bool {
 		p.push(inlineList)
 		return true
 	}
+}
+
+// maybeEatInlineList parses inline array literals like [1,2,3]
+func (p *InternalSpelExpressionParser) maybeEatInlineList() bool {
+	if !p.peekToken(LSQUARE) {
+		return false
+	}
+
+	startToken := p.takeToken() // consume '['
+
+	// Handle empty array []
+	if p.peekToken(RSQUARE) {
+		endToken := p.takeToken() // consume ']'
+		// Create empty list for []
+		inlineList := NewInlineList([]SpelNode{}, startToken.StartPos, endToken.EndPos)
+		p.push(inlineList)
+		return true
+	}
+
+	// Parse array elements
+	var elements []SpelNode
+
+	// Parse first element
+	firstExpr, err := p.eatExpression()
+	if err != nil {
+		return false
+	}
+	elements = append(elements, firstExpr)
+
+	// Parse remaining elements separated by commas
+	for p.peekToken(COMMA) {
+		p.takeToken() // consume ','
+
+		// Check for trailing comma
+		if p.peekToken(RSQUARE) {
+			break // Allow trailing comma
+		}
+
+		element, err := p.eatExpression()
+		if err != nil {
+			return false
+		}
+		elements = append(elements, element)
+	}
+
+	// Expect closing bracket
+	if !p.peekToken(RSQUARE) {
+		return false
+	}
+	endToken := p.takeToken() // consume ']'
+
+	// Create inline list for array literal
+	inlineList := NewInlineList(elements, startToken.StartPos, endToken.EndPos)
+	p.push(inlineList)
+	return true
 }
 
 // maybeEatMethodCall parses direct method calls like methodName(args...)
