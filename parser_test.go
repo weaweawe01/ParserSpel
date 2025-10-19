@@ -29,7 +29,7 @@ func TestSpelParserAnalysis(t *testing.T) {
 			name:       "数字字面量",
 			expression: "42",
 			expected: ASTExpectation{
-				NodeType: "Literal",
+				NodeType: "IntLiteral",
 				Value:    "42",
 				Children: []ASTExpectation{},
 			},
@@ -158,12 +158,12 @@ func TestSpelParserAnalysis(t *testing.T) {
 						Value:    "substring(1, 5)",
 						Children: []ASTExpectation{
 							{
-								NodeType: "Literal",
+								NodeType: "IntLiteral",
 								Value:    "1",
 								Children: []ASTExpectation{},
 							},
 							{
-								NodeType: "Literal",
+								NodeType: "IntLiteral",
 								Value:    "5",
 								Children: []ASTExpectation{},
 							},
@@ -500,7 +500,7 @@ func TestSpelParserAnalysis(t *testing.T) {
 						},
 					},
 					{NodeType: "StringLiteral", Value: "'127.0.0.1'", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "8080", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "8080", Children: []ASTExpectation{}},
 				},
 			},
 		},
@@ -711,10 +711,12 @@ func getNodeTypeName(node ast.SpelNode) string {
 		return "StringLiteral"
 	case *ast.BooleanLiteral:
 		return "BooleanLiteral"
+	case *ast.RealLiteral:
+		return "RealLiteral"
 	case *ast.NullLiteral:
 		return "NullLiteral"
-	case *ast.Literal:
-		return "Literal"
+	case *ast.IntLiteral:
+		return "IntLiteral"
 	case *ast.Identifier:
 		return "Identifier"
 	case *ast.PropertyOrFieldReference:
@@ -747,10 +749,30 @@ func getNodeTypeName(node ast.SpelNode) string {
 		return "Assign"
 	case *ast.OpLT:
 		return "OpLT"
+	case *ast.OpLE:
+		return "OpLE"
 	case *ast.OpGT:
 		return "OpGT"
+	case *ast.OpGE:
+		return "OpGE"
 	case *ast.OpPlus:
 		return "OpPlus"
+	case *ast.OpMinus:
+		return "OpMinus"
+	case *ast.OpMultiply:
+		return "OpMultiply"
+	case *ast.OpDivide:
+		return "OpDivide"
+	case *ast.OpEQ:
+		return "OpEQ"
+	case *ast.OpNE:
+		return "OpNE"
+	case *ast.OpAnd:
+		return "OpAnd"
+	case *ast.OpOr:
+		return "OpOr"
+	case *ast.OperatorNot:
+		return "OperatorNot"
 	case *ast.Selection:
 		return "Selection"
 	case *ast.Projection:

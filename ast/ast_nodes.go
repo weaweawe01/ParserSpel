@@ -6,28 +6,28 @@ import (
 	"strings"
 )
 
-// Literal represents a literal value in the expression
-type Literal struct {
+// IntLiteral represents an integer literal value in the expression
+type IntLiteral struct {
 	*SpelNodeImpl
 	Value interface{}
 }
 
-func NewLiteral(value interface{}, startPos, endPos int) *Literal {
-	return &Literal{
+func NewIntLiteral(value interface{}, startPos, endPos int) *IntLiteral {
+	return &IntLiteral{
 		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos),
 		Value:        value,
 	}
 }
 
-func (l *Literal) GetValue(state *ExpressionState) (interface{}, error) {
+func (l *IntLiteral) GetValue(state *ExpressionState) (interface{}, error) {
 	return l.Value, nil
 }
 
-func (l *Literal) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+func (l *IntLiteral) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
 	return NewTypedValue(l.Value), nil
 }
 
-func (l *Literal) ToStringAST() string {
+func (l *IntLiteral) ToStringAST() string {
 	if str, ok := l.Value.(string); ok {
 		return fmt.Sprintf("'%s'", str)
 	}
@@ -36,24 +36,47 @@ func (l *Literal) ToStringAST() string {
 
 // StringLiteral represents a string literal
 type StringLiteral struct {
-	*Literal
+	*IntLiteral
 }
 
 func NewStringLiteral(value string, startPos, endPos int) *StringLiteral {
 	return &StringLiteral{
-		Literal: NewLiteral(value, startPos, endPos),
+		IntLiteral: NewIntLiteral(value, startPos, endPos),
 	}
 }
 
 // BooleanLiteral represents a boolean literal
 type BooleanLiteral struct {
-	*Literal
+	*IntLiteral
 }
 
 func NewBooleanLiteral(value bool, startPos, endPos int) *BooleanLiteral {
 	return &BooleanLiteral{
-		Literal: NewLiteral(value, startPos, endPos),
+		IntLiteral: NewIntLiteral(value, startPos, endPos),
 	}
+}
+
+// RealLiteral represents a real (floating point) literal
+type RealLiteral struct {
+	*IntLiteral
+}
+
+func NewRealLiteral(value float64, startPos, endPos int) *RealLiteral {
+	return &RealLiteral{
+		IntLiteral: NewIntLiteral(value, startPos, endPos),
+	}
+}
+
+func (r *RealLiteral) ToStringAST() string {
+	// Format float64 values with at least one decimal place
+	if val, ok := r.Value.(float64); ok {
+		// If it's a whole number, add .0
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%.1f", val)
+		}
+		return fmt.Sprintf("%g", val)
+	}
+	return fmt.Sprintf("%v", r.Value)
 }
 
 // NullLiteral represents a null literal
@@ -317,7 +340,10 @@ func parseNumber(tokenData string, tokenKind TokenKind) (interface{}, error) {
 		data = strings.TrimSuffix(data, "l")
 		return strconv.ParseInt(data, 16, 64)
 	case LITERAL_REAL:
-		return strconv.ParseFloat(tokenData, 64)
+		// Remove 'd' or 'D' suffix for double literals
+		data := strings.TrimSuffix(tokenData, "D")
+		data = strings.TrimSuffix(data, "d")
+		return strconv.ParseFloat(data, 64)
 	case LITERAL_REAL_FLOAT:
 		// Remove 'F' suffix
 		data := strings.TrimSuffix(tokenData, "F")
@@ -384,6 +410,7 @@ type ConstructorReference struct {
 	TypeName      string
 	QualifierNode SpelNode // The qualified identifier for the type
 	Arguments     []SpelNode
+	DisplayFormat string // Optional custom display format for array constructors
 }
 
 func NewConstructorReference(typeName string, qualifierNode SpelNode, arguments []SpelNode, startPos, endPos int) *ConstructorReference {
@@ -399,6 +426,24 @@ func NewConstructorReference(typeName string, qualifierNode SpelNode, arguments 
 		TypeName:      typeName,
 		QualifierNode: qualifierNode,
 		Arguments:     arguments,
+		DisplayFormat: "", // Default empty, will use auto-generated format
+	}
+}
+
+func NewConstructorReferenceWithDisplay(typeName string, qualifierNode SpelNode, arguments []SpelNode, displayFormat string, startPos, endPos int) *ConstructorReference {
+	// Create children array including the qualifier and arguments
+	var children []SpelNode
+	if qualifierNode != nil {
+		children = append(children, qualifierNode)
+	}
+	children = append(children, arguments...)
+
+	return &ConstructorReference{
+		SpelNodeImpl:  NewSpelNodeImpl(startPos, endPos, children...),
+		TypeName:      typeName,
+		QualifierNode: qualifierNode,
+		Arguments:     arguments,
+		DisplayFormat: displayFormat,
 	}
 }
 
@@ -424,9 +469,41 @@ func (c *ConstructorReference) GetTypedValue(state *ExpressionState) (*TypedValu
 }
 
 func (c *ConstructorReference) ToStringAST() string {
+	// Use custom display format if provided
+	if c.DisplayFormat != "" {
+		return c.DisplayFormat
+	}
+
 	if len(c.Arguments) == 0 {
 		return fmt.Sprintf("new %s()", c.TypeName)
 	}
+
+	// Check if this is an array constructor (single InlineList argument)
+	if len(c.Arguments) == 1 {
+		if inlineList, ok := c.Arguments[0].(*InlineList); ok {
+			// Format as array constructor
+			// If TypeName already contains [], use as-is; otherwise add []
+			if strings.Contains(c.TypeName, "[]") {
+				return fmt.Sprintf("new %s %s", c.TypeName, inlineList.ToStringAST())
+			} else {
+				return fmt.Sprintf("new %s[] %s", c.TypeName, inlineList.ToStringAST())
+			}
+		}
+	}
+
+	// Check if this is an array constructor with size and initializer
+	// e.g., new char[7]{'a','c','d','e'} -> arguments: [Literal(7), InlineList]
+	if len(c.Arguments) >= 2 {
+		lastArg := c.Arguments[len(c.Arguments)-1]
+		if inlineList, ok := lastArg.(*InlineList); ok {
+			// This looks like an array constructor with size and initializer
+			// Format as: new type[] {elements}
+			return fmt.Sprintf("new %s[] %s", c.TypeName, inlineList.ToStringAST())
+		}
+	}
+
+	// This logic should only be triggered by the custom DisplayFormat from parser
+	// Normal constructor calls should fall through to the default formatting
 
 	var argStrings []string
 	for _, arg := range c.Arguments {
@@ -898,7 +975,7 @@ func (t *Ternary) ToStringAST() string {
 	if t.FalseValue != nil {
 		falseVal = t.FalseValue.ToStringAST()
 	}
-	return condition + " ? " + trueVal + " : " + falseVal
+	return "(" + condition + " ? " + trueVal + " : " + falseVal + ")"
 }
 
 // Elvis represents Elvis operator expressions like value ?: defaultValue

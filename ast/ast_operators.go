@@ -2,6 +2,7 @@ package ast
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -69,14 +70,27 @@ func (op *OpPlus) ToStringAST() string {
 	return fmt.Sprintf("(%s + %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
 }
 
-// OpMinus represents subtraction operator
+// OpMinus represents subtraction operator (binary) or negation operator (unary)
 type OpMinus struct {
-	*BinaryOperator
+	*SpelNodeImpl
+	Left  SpelNode // For unary operations, this is the only operand
+	Right SpelNode // nil for unary operations
 }
 
 func NewOpMinus(left, right SpelNode, startPos, endPos int) *OpMinus {
 	return &OpMinus{
-		BinaryOperator: NewBinaryOperator(left, right, startPos, endPos),
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos),
+		Left:         left,
+		Right:        right,
+	}
+}
+
+// NewUnaryOpMinus creates a unary minus operator
+func NewUnaryOpMinus(operand SpelNode, startPos, endPos int) *OpMinus {
+	return &OpMinus{
+		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos),
+		Left:         operand,
+		Right:        nil,
 	}
 }
 
@@ -86,6 +100,12 @@ func (op *OpMinus) GetValue(state *ExpressionState) (interface{}, error) {
 		return nil, err
 	}
 
+	// If this is a unary minus operation (Right is nil)
+	if op.Right == nil {
+		return negateNumber(leftVal)
+	}
+
+	// Binary minus operation
 	rightVal, err := op.Right.GetValue(state)
 	if err != nil {
 		return nil, err
@@ -103,7 +123,13 @@ func (op *OpMinus) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
 }
 
 func (op *OpMinus) ToStringAST() string {
-	return fmt.Sprintf("(%s - %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+	if op.Right == nil {
+		// Unary minus
+		return fmt.Sprintf("-%s", op.Left.ToStringAST())
+	} else {
+		// Binary minus
+		return fmt.Sprintf("(%s - %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+	}
 }
 
 // OpMultiply represents multiplication operator
@@ -178,6 +204,80 @@ func (op *OpDivide) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
 
 func (op *OpDivide) ToStringAST() string {
 	return fmt.Sprintf("(%s / %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+}
+
+// OpModulus represents modulo operator
+type OpModulus struct {
+	*BinaryOperator
+}
+
+func NewOpModulus(left, right SpelNode, startPos, endPos int) *OpModulus {
+	return &OpModulus{
+		BinaryOperator: NewBinaryOperator(left, right, startPos, endPos),
+	}
+}
+
+func (op *OpModulus) GetValue(state *ExpressionState) (interface{}, error) {
+	leftVal, err := op.Left.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	rightVal, err := op.Right.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	return moduloNumbers(leftVal, rightVal)
+}
+
+func (op *OpModulus) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := op.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}
+
+func (op *OpModulus) ToStringAST() string {
+	return fmt.Sprintf("(%s %% %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+}
+
+// OpPower represents power operator
+type OperatorPower struct {
+	*BinaryOperator
+}
+
+func NewOperatorPower(left, right SpelNode, startPos, endPos int) *OperatorPower {
+	return &OperatorPower{
+		BinaryOperator: NewBinaryOperator(left, right, startPos, endPos),
+	}
+}
+
+func (op *OperatorPower) GetValue(state *ExpressionState) (interface{}, error) {
+	leftVal, err := op.Left.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	rightVal, err := op.Right.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	return powerNumbers(leftVal, rightVal)
+}
+
+func (op *OperatorPower) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := op.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}
+
+func (op *OperatorPower) ToStringAST() string {
+	return fmt.Sprintf("(%s ^ %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
 }
 
 // Comparison operators
@@ -330,6 +430,82 @@ func (op *OpLT) ToStringAST() string {
 	return fmt.Sprintf("(%s < %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
 }
 
+// OpLE represents less than or equal operator
+type OpLE struct {
+	*BinaryOperator
+}
+
+func NewOpLE(left, right SpelNode, startPos, endPos int) *OpLE {
+	return &OpLE{
+		BinaryOperator: NewBinaryOperator(left, right, startPos, endPos),
+	}
+}
+
+func (op *OpLE) GetValue(state *ExpressionState) (interface{}, error) {
+	leftVal, err := op.Left.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	rightVal, err := op.Right.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	return compareNumbers(leftVal, rightVal) <= 0, nil
+}
+
+func (op *OpLE) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := op.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}
+
+func (op *OpLE) ToStringAST() string {
+	return fmt.Sprintf("(%s <= %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+}
+
+// OpGE represents greater than or equal operator
+type OpGE struct {
+	*BinaryOperator
+}
+
+func NewOpGE(left, right SpelNode, startPos, endPos int) *OpGE {
+	return &OpGE{
+		BinaryOperator: NewBinaryOperator(left, right, startPos, endPos),
+	}
+}
+
+func (op *OpGE) GetValue(state *ExpressionState) (interface{}, error) {
+	leftVal, err := op.Left.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	rightVal, err := op.Right.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	return compareNumbers(leftVal, rightVal) >= 0, nil
+}
+
+func (op *OpGE) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := op.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}
+
+func (op *OpGE) ToStringAST() string {
+	return fmt.Sprintf("(%s >= %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+}
+
+// OpAnd represents logical AND operator
+
 // Logical operators
 
 // OpAnd represents logical AND operator
@@ -371,7 +547,7 @@ func (op *OpAnd) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
 }
 
 func (op *OpAnd) ToStringAST() string {
-	return fmt.Sprintf("(%s && %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+	return fmt.Sprintf("(%s and %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
 }
 
 // OpOr represents logical OR operator
@@ -413,7 +589,7 @@ func (op *OpOr) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
 }
 
 func (op *OpOr) ToStringAST() string {
-	return fmt.Sprintf("(%s || %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
+	return fmt.Sprintf("(%s or %s)", op.Left.ToStringAST(), op.Right.ToStringAST())
 }
 
 // Unary operators
@@ -461,7 +637,7 @@ func (op *OperatorNot) GetTypedValue(state *ExpressionState) (*TypedValue, error
 }
 
 func (op *OperatorNot) ToStringAST() string {
-	return fmt.Sprintf("(!%s)", op.Child.ToStringAST())
+	return fmt.Sprintf("!%s", op.Child.ToStringAST())
 }
 
 // OperatorMatches represents the matches operator for regex
@@ -530,6 +706,46 @@ func divideNumbers(left, right interface{}) (interface{}, error) {
 		}
 		return a / b
 	})
+}
+
+func moduloNumbers(left, right interface{}) (interface{}, error) {
+	return performNumericOperation(left, right, func(a, b float64) float64 {
+		if b == 0 {
+			return 0 // Handle modulo by zero
+		}
+		// Use Go's math package behavior for floating point modulo
+		// For integers, this works the same as % operator
+		return math.Mod(a, b)
+	})
+}
+
+func powerNumbers(left, right interface{}) (interface{}, error) {
+	return performNumericOperation(left, right, func(a, b float64) float64 {
+		// Use Go's math.Pow function for power operation
+		return math.Pow(a, b)
+	})
+}
+
+func negateNumber(operand interface{}) (interface{}, error) {
+	switch v := operand.(type) {
+	case int:
+		return -v, nil
+	case int32:
+		return -v, nil
+	case int64:
+		return -v, nil
+	case float32:
+		return -v, nil
+	case float64:
+		return -v, nil
+	default:
+		// Try to convert to number and negate
+		num, err := toNumber(operand)
+		if err != nil {
+			return nil, fmt.Errorf("cannot negate non-numeric value: %v", operand)
+		}
+		return -num, nil
+	}
 }
 
 func performNumericOperation(left, right interface{}, op func(float64, float64) float64) (interface{}, error) {

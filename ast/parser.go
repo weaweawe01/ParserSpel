@@ -44,6 +44,11 @@ func (p *InternalSpelExpressionParser) DoParseExpression(expressionString string
 	p.TokenStreamPointer = 0
 	p.ConstructedNodes = make([]SpelNode, 0)
 
+	// Print token stream (matching Java debug output)
+	for count, token := range p.TokenStream {
+		fmt.Printf("[%d] %s\n", count, token)
+	}
+
 	// Parse the tokens into an AST
 	ast, err := p.eatExpression()
 	fmt.Println("AST->", ast)
@@ -101,6 +106,10 @@ func (p *InternalSpelExpressionParser) ParseExpression(expressionString string) 
 	if err != nil {
 		return nil, fmt.Errorf("tokenization failed: %v", err)
 	}
+	for token, v := range tokens {
+		fmt.Printf("[%d] %s\n", token, v)
+	}
+
 	p.TokenStream = tokens
 	p.TokenStreamLength = len(tokens)
 	p.TokenStreamPointer = 0
@@ -285,14 +294,11 @@ func (p *InternalSpelExpressionParser) eatRelationalExpression() (SpelNode, erro
 		case GT:
 			expr = NewOpGT(expr, right, startPos, endPos)
 		case GE:
-			// Add GE operator (>=)
-			return nil, fmt.Errorf("GE operator not fully implemented yet")
+			expr = NewOpGE(expr, right, startPos, endPos)
 		case LT:
-			// Add LT operator (<)
 			expr = NewOpLT(expr, right, startPos, endPos)
 		case LE:
-			// Add LE operator (<=)
-			return nil, fmt.Errorf("LE operator not fully implemented yet")
+			expr = NewOpLE(expr, right, startPos, endPos)
 		case MATCHES:
 			expr = NewOperatorMatches(expr, right, startPos, endPos)
 		default:
@@ -337,14 +343,14 @@ func (p *InternalSpelExpressionParser) eatSumExpression() (SpelNode, error) {
 
 // eatProductExpression parses multiplication, division, and modulo expressions
 func (p *InternalSpelExpressionParser) eatProductExpression() (SpelNode, error) {
-	expr, err := p.eatUnaryExpression()
+	expr, err := p.eatPowerIncDecExpression()
 	if err != nil {
 		return nil, err
 	}
 
 	for p.peekToken(STAR) || p.peekToken(DIV) || p.peekToken(MOD) {
 		token := p.takeToken()
-		right, err := p.eatUnaryExpression()
+		right, err := p.eatPowerIncDecExpression()
 		if err != nil {
 			return nil, err
 		}
@@ -362,11 +368,36 @@ func (p *InternalSpelExpressionParser) eatProductExpression() (SpelNode, error) 
 		case DIV:
 			expr = NewOpDivide(expr, right, startPos, endPos)
 		case MOD:
-			// Add modulo operator if needed
-			return nil, fmt.Errorf("MOD operator not implemented yet")
+			expr = NewOpModulus(expr, right, startPos, endPos)
 		}
 	}
 
+	return expr, nil
+}
+
+// eatPowerIncDecExpression parses power expressions
+func (p *InternalSpelExpressionParser) eatPowerIncDecExpression() (SpelNode, error) {
+	expr, err := p.eatUnaryExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.peekToken(POWER) {
+		token := p.takeToken() // consume POWER
+		right, err := p.eatUnaryExpression()
+		if err != nil {
+			return nil, err
+		}
+		if right == nil {
+			return nil, fmt.Errorf("missing right operand for power operator at position %d", token.StartPos)
+		}
+
+		startPos := expr.GetStartPosition()
+		endPos := right.GetEndPosition()
+		return NewOperatorPower(expr, right, startPos, endPos), nil
+	}
+
+	// TODO: Handle INC/DEC operators if needed
 	return expr, nil
 }
 
@@ -390,9 +421,8 @@ func (p *InternalSpelExpressionParser) eatUnaryExpression() (SpelNode, error) {
 			// Unary plus - just return the child
 			return child, nil
 		case MINUS:
-			// Unary minus - could be implemented as 0 - child
-			zero := NewLiteral(0, token.StartPos, token.StartPos)
-			return NewOpMinus(zero, child, token.StartPos, child.GetEndPosition()), nil
+			// Unary minus
+			return NewUnaryOpMinus(child, token.StartPos, child.GetEndPosition()), nil
 		}
 	}
 
@@ -643,14 +673,34 @@ func (p *InternalSpelExpressionParser) maybeEatLiteral() bool {
 	}
 
 	switch token.Kind {
-	case LITERAL_INT, LITERAL_LONG, LITERAL_HEXINT, LITERAL_HEXLONG, LITERAL_REAL, LITERAL_REAL_FLOAT:
+	case LITERAL_INT, LITERAL_LONG, LITERAL_HEXINT, LITERAL_HEXLONG:
 		p.takeToken()
 		value, err := parseNumber(token.StringValue(), token.Kind)
 		if err != nil {
 			return false
 		}
-		literal := NewLiteral(value, token.StartPos, token.EndPos)
+		literal := NewIntLiteral(value, token.StartPos, token.EndPos)
 		p.push(literal)
+		return true
+
+	case LITERAL_REAL, LITERAL_REAL_FLOAT:
+		p.takeToken()
+		value, err := parseNumber(token.StringValue(), token.Kind)
+		if err != nil {
+			return false
+		}
+		// Create RealLiteral for floating point numbers
+		if floatVal, ok := value.(float64); ok {
+			realLiteral := NewRealLiteral(floatVal, token.StartPos, token.EndPos)
+			p.push(realLiteral)
+		} else if floatVal, ok := value.(float32); ok {
+			realLiteral := NewRealLiteral(float64(floatVal), token.StartPos, token.EndPos)
+			p.push(realLiteral)
+		} else {
+			// Fallback to regular literal
+			literal := NewIntLiteral(value, token.StartPos, token.EndPos)
+			p.push(literal)
+		}
 		return true
 
 	case LITERAL_STRING:
@@ -810,7 +860,13 @@ func (p *InternalSpelExpressionParser) maybeEatIdentifier() bool {
 		return false
 	}
 
-	token := p.takeToken()
+	token := p.peekTokenRaw()
+	// Don't treat reserved keywords as regular identifiers
+	if token != nil && strings.ToLower(token.StringValue()) == "new" {
+		return false
+	}
+
+	token = p.takeToken()
 	// In SpEL, standalone identifiers are treated as direct property/field references
 	// This matches the Java implementation behavior
 	propertyRef := NewDirectPropertyOrFieldReference(token.StringValue(), token.StartPos, token.EndPos)
@@ -920,6 +976,12 @@ func (p *InternalSpelExpressionParser) maybeEatInlineCollection() bool {
 func (p *InternalSpelExpressionParser) maybeEatMethodCall() bool {
 	// Look ahead to see if we have IDENTIFIER followed by LPAREN
 	if !p.peekToken(IDENTIFIER) {
+		return false
+	}
+
+	// Don't treat reserved keywords as method names
+	token := p.peekTokenRaw()
+	if token != nil && strings.ToLower(token.StringValue()) == "new" {
 		return false
 	}
 
@@ -1122,19 +1184,31 @@ func (p *InternalSpelExpressionParser) maybeEatConstructorExpression() bool {
 	// Parse the type/class name (may include dots like java.lang.String)
 	var typeParts []string
 
-	if !p.peekToken(IDENTIFIER) {
-		// Not a constructor, put back the token
+	// Java Spring SpEL allows numbers and other tokens as type names in constructor expressions
+	// Check for IDENTIFIER or numeric literals
+	if !p.peekToken(IDENTIFIER) && !p.peekToken(LITERAL_INT) && !p.peekToken(LITERAL_LONG) &&
+		!p.peekToken(LITERAL_HEXINT) && !p.peekToken(LITERAL_HEXLONG) {
+		// 'new' keyword found but no valid type name follows
+		// Put the token back and let the normal error handling in eatStartNode handle it
 		p.TokenStreamPointer--
 		return false
 	}
 
-	// Collect type name parts
+	// Collect type name parts - accept identifiers and numeric literals
 	for {
-		if !p.peekToken(IDENTIFIER) {
+		token := p.peekTokenRaw()
+		if token == nil {
 			break
 		}
-		identToken := p.takeToken()
-		typeParts = append(typeParts, identToken.StringValue())
+
+		// Accept IDENTIFIER or numeric literals as type name parts
+		if p.peekToken(IDENTIFIER) || p.peekToken(LITERAL_INT) || p.peekToken(LITERAL_LONG) ||
+			p.peekToken(LITERAL_HEXINT) || p.peekToken(LITERAL_HEXLONG) {
+			identToken := p.takeToken()
+			typeParts = append(typeParts, identToken.StringValue())
+		} else {
+			break
+		}
 
 		if p.peekToken(DOT) {
 			p.takeToken() // consume '.'
@@ -1151,15 +1225,9 @@ func (p *InternalSpelExpressionParser) maybeEatConstructorExpression() bool {
 
 	typeName := strings.Join(typeParts, ".")
 
-	// Create QualifiedIdentifier for the type name
+	// Create QualifiedIdentifier for the type name - always use QualifiedIdentifier to match Java behavior
 	var qualifierNode SpelNode
-	if len(typeParts) == 1 {
-		// Single identifier
-		qualifierNode = NewIdentifier(typeParts[0], 0, 0) // Position will be updated
-	} else {
-		// Multiple parts - create QualifiedIdentifier
-		qualifierNode = NewQualifiedIdentifier(typeParts, 0, 0) // Position will be updated
-	}
+	qualifierNode = NewQualifiedIdentifier(typeParts, 0, 0) // Position will be updated
 
 	// Check for array notation []{...}
 	if p.peekToken(LSQUARE) {
@@ -1217,65 +1285,225 @@ func (p *InternalSpelExpressionParser) maybeEatConstructorExpression() bool {
 	return true
 }
 
-// maybeEatArrayConstructor handles array constructor syntax like new byte[]{1,2,3}
+// maybeEatArrayConstructor handles array constructor syntax like new String[]{1,2,3} or new int[][]{{1,2},{3,4}}
+// Also handles array constructors with size expressions like new int[1024 * 1024][1024 * 1024]
+// This should be parsed as ConstructorReference with InlineList, not ArrayConstructor
 func (p *InternalSpelExpressionParser) maybeEatArrayConstructor(newToken *Token, typeName string) bool {
 	if !p.peekToken(LSQUARE) {
 		return false
 	}
 
-	p.takeToken() // consume '['
+	// Try to parse array constructor with size expressions first
+	if p.tryParseArrayConstructorWithSizes(newToken, typeName) {
+		return true
+	}
 
-	if !p.peekToken(RSQUARE) {
+	// Count and consume array dimensions [][]...
+	dimensionCount := 0
+	for p.peekToken(LSQUARE) {
+		p.takeToken() // consume '['
+
+		if !p.peekToken(RSQUARE) {
+			// Not an empty bracket pair, not an array constructor
+			return false
+		}
+
+		p.takeToken() // consume ']'
+		dimensionCount++
+	}
+
+	if dimensionCount == 0 || !p.peekToken(LCURLY) {
 		return false
 	}
 
-	p.takeToken() // consume ']'
+	// Build array type name with dimensions (e.g., "int" -> "int[][]")
+	arrayTypeName := typeName
+	for i := 0; i < dimensionCount; i++ {
+		arrayTypeName += "[]"
+	}
 
+	// Parse the inline list {1,2,3}
 	if !p.peekToken(LCURLY) {
 		return false
 	}
 
-	p.takeToken() // consume '{'
+	startToken := p.takeToken() // consume '{'
 
-	// Parse array elements
 	var elements []SpelNode
 
 	// Handle empty array
 	if p.peekToken(RCURLY) {
 		p.takeToken() // consume '}'
-		endPos := p.TokenStream[p.TokenStreamPointer-1].EndPos
-		arrayConstructor := NewArrayConstructor(typeName, elements, newToken.StartPos, endPos)
-		p.push(arrayConstructor)
-		return true
-	}
+	} else {
+		// Parse elements separated by commas
+		for {
+			element, err := p.eatExpression()
+			if err != nil {
+				return false
+			}
+			if element == nil {
+				return false
+			}
+			elements = append(elements, element)
 
-	// Parse elements separated by commas
-	for {
-		element, err := p.eatExpression()
-		if err != nil {
+			if p.peekToken(COMMA) {
+				p.takeToken() // consume ','
+				continue
+			}
+			break
+		}
+
+		if !p.peekToken(RCURLY) {
 			return false
 		}
-		if element == nil {
-			return false
-		}
-		elements = append(elements, element)
-
-		if p.peekToken(COMMA) {
-			p.takeToken() // consume ','
-			continue
-		}
-		break
+		p.takeToken() // consume '}'
 	}
 
-	if !p.peekToken(RCURLY) {
+	endToken := p.TokenStream[p.TokenStreamPointer-1]
+	endPos := endToken.EndPos
+
+	// Create InlineList for the array elements
+	inlineList := NewInlineList(elements, startToken.StartPos, endToken.EndPos)
+
+	// Create type identifier - always use QualifiedIdentifier to match Java behavior
+	var typeIdentifier SpelNode
+	if strings.Contains(typeName, ".") {
+		// Qualified identifier like "java.lang.String"
+		parts := strings.Split(typeName, ".")
+		typeIdentifier = NewQualifiedIdentifier(parts, newToken.StartPos, newToken.EndPos)
+	} else {
+		// Simple identifier like "String" - still wrap in QualifiedIdentifier
+		parts := []string{typeName}
+		typeIdentifier = NewQualifiedIdentifier(parts, newToken.StartPos, newToken.EndPos)
+	}
+
+	// Create ConstructorReference with array type and InlineList as arguments
+	arguments := []SpelNode{inlineList}
+	constructorRef := NewConstructorReference(arrayTypeName, typeIdentifier, arguments, newToken.StartPos, endPos)
+	p.push(constructorRef)
+	return true
+}
+
+// tryParseArrayConstructorWithSizes handles array constructor syntax with size expressions
+// like new int[1024 * 1024][1024 * 1024] or new char[7]{'a','c','d','e'}
+func (p *InternalSpelExpressionParser) tryParseArrayConstructorWithSizes(newToken *Token, typeName string) bool {
+	// Save current position in case we need to backtrack
+	originalPosition := p.TokenStreamPointer
+
+	var sizeExpressions []SpelNode
+
+	// Parse array dimensions with size expressions [expr][expr]...
+	for p.peekToken(LSQUARE) {
+		p.takeToken() // consume '['
+
+		if p.peekToken(RSQUARE) {
+			// Empty bracket [], revert and let the original function handle it
+			p.TokenStreamPointer = originalPosition
+			return false
+		}
+
+		// Parse the size expression inside brackets
+		sizeExpr, err := p.eatExpression()
+		if err != nil || sizeExpr == nil {
+			// Failed to parse size expression, revert
+			p.TokenStreamPointer = originalPosition
+			return false
+		}
+
+		if !p.peekToken(RSQUARE) {
+			// Missing closing bracket, revert
+			p.TokenStreamPointer = originalPosition
+			return false
+		}
+
+		p.takeToken() // consume ']'
+		sizeExpressions = append(sizeExpressions, sizeExpr)
+	}
+
+	if len(sizeExpressions) == 0 {
+		// No size expressions found, revert
+		p.TokenStreamPointer = originalPosition
 		return false
 	}
 
-	endToken := p.takeToken() // consume '}'
-	endPos := endToken.EndPos
+	// Create type identifier
+	var typeIdentifier SpelNode
+	if strings.Contains(typeName, ".") {
+		// Qualified identifier like "java.lang.String"
+		parts := strings.Split(typeName, ".")
+		typeIdentifier = NewQualifiedIdentifier(parts, newToken.StartPos, newToken.EndPos)
+	} else {
+		// Simple identifier like "String" - still wrap in QualifiedIdentifier
+		parts := []string{typeName}
+		typeIdentifier = NewQualifiedIdentifier(parts, newToken.StartPos, newToken.EndPos)
+	}
 
-	arrayConstructor := NewArrayConstructor(typeName, elements, newToken.StartPos, endPos)
-	p.push(arrayConstructor)
+	// In Java Spring SpEL, size expressions are parsed but not retained in the AST
+	// Only the type identifier and optional initializer list are kept as children
+	var arguments []SpelNode
+
+	// Check if there's also an initializer list like {'a','c','d','e'}
+	if p.peekToken(LCURLY) {
+		startToken := p.takeToken() // consume '{'
+
+		var elements []SpelNode
+
+		// Handle empty initializer
+		if p.peekToken(RCURLY) {
+			p.takeToken() // consume '}'
+		} else {
+			// Parse elements separated by commas
+			for {
+				element, err := p.eatExpression()
+				if err != nil || element == nil {
+					// Failed to parse element, revert
+					p.TokenStreamPointer = originalPosition
+					return false
+				}
+				elements = append(elements, element)
+
+				if p.peekToken(COMMA) {
+					p.takeToken() // consume ','
+					continue
+				}
+				break
+			}
+
+			if !p.peekToken(RCURLY) {
+				// Missing closing brace, revert
+				p.TokenStreamPointer = originalPosition
+				return false
+			}
+			p.takeToken() // consume '}'
+		}
+
+		endToken := p.TokenStream[p.TokenStreamPointer-1]
+
+		// Create InlineList for the array elements and add to arguments
+		inlineList := NewInlineList(elements, startToken.StartPos, endToken.EndPos)
+		arguments = append(arguments, inlineList)
+	}
+
+	endPos := p.TokenStream[p.TokenStreamPointer-1].EndPos
+
+	// Generate display format for array constructor with size expressions
+	var dimensionStrings []string
+	for _, sizeExpr := range sizeExpressions {
+		dimensionStrings = append(dimensionStrings, fmt.Sprintf("[%s]", sizeExpr.ToStringAST()))
+	}
+	displayFormat := fmt.Sprintf("new %s%s", typeName, strings.Join(dimensionStrings, ""))
+
+	// Add initializer list to display format if present
+	if len(arguments) > 0 {
+		if inlineList, ok := arguments[len(arguments)-1].(*InlineList); ok {
+			displayFormat = fmt.Sprintf("new %s[] %s", typeName, inlineList.ToStringAST())
+		}
+	}
+
+	// Create ConstructorReference with custom display format
+	// Size expressions are used for parsing but not retained in AST (matching Java Spring SpEL behavior)
+	constructorRef := NewConstructorReferenceWithDisplay(typeName, typeIdentifier, arguments, displayFormat, newToken.StartPos, endPos)
+	p.push(constructorRef)
 	return true
 }
 

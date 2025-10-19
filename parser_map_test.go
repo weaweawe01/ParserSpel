@@ -28,7 +28,7 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 						NodeType: "Indexer",
 						Value:    "[3]",
 						Children: []ASTExpectation{
-							{NodeType: "Literal", Value: "3", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "3", Children: []ASTExpectation{}},
 						},
 					},
 				},
@@ -46,7 +46,7 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 						NodeType: "Indexer",
 						Value:    "[0]",
 						Children: []ASTExpectation{
-							{NodeType: "Literal", Value: "0", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "0", Children: []ASTExpectation{}},
 						},
 					},
 					{NodeType: "PropertyOrFieldReference", Value: ".Name", Children: []ASTExpectation{}},
@@ -90,7 +90,7 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 						NodeType: "Indexer",
 						Value:    "[0]",
 						Children: []ASTExpectation{
-							{NodeType: "Literal", Value: "0", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "0", Children: []ASTExpectation{}},
 						},
 					},
 					{NodeType: "PropertyOrFieldReference", Value: ".PlaceOfBirth", Children: []ASTExpectation{}},
@@ -105,10 +105,10 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 				NodeType: "InlineList",
 				Value:    "{1,2,3,4}",
 				Children: []ASTExpectation{
-					{NodeType: "Literal", Value: "1", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "2", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "3", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "4", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "1", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "2", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "3", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "4", Children: []ASTExpectation{}},
 				},
 			},
 		},
@@ -162,11 +162,11 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 						Value:    "{day:10,month:'July',year:1856}",
 						Children: []ASTExpectation{
 							{NodeType: "PropertyOrFieldReference", Value: "day", Children: []ASTExpectation{}},
-							{NodeType: "Literal", Value: "10", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "10", Children: []ASTExpectation{}},
 							{NodeType: "PropertyOrFieldReference", Value: "month", Children: []ASTExpectation{}},
 							{NodeType: "StringLiteral", Value: "'July'", Children: []ASTExpectation{}},
 							{NodeType: "PropertyOrFieldReference", Value: "year", Children: []ASTExpectation{}},
-							{NodeType: "Literal", Value: "1856", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "1856", Children: []ASTExpectation{}},
 						},
 					},
 				},
@@ -176,12 +176,25 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 			name:       "数组构造器",
 			expression: "new int[]{1,2,3}",
 			expected: ASTExpectation{
-				NodeType: "ArrayConstructor",
-				Value:    "new int[]{1, 2, 3}", // 注意实际输出包含空格
+				NodeType: "ConstructorReference",
+				Value:    "new int[] {1,2,3}", // 注意实际输出包含空格
 				Children: []ASTExpectation{
-					{NodeType: "Literal", Value: "1", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "2", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "3", Children: []ASTExpectation{}},
+					{
+						NodeType: "QualifiedIdentifier",
+						Value:    "int",
+						Children: []ASTExpectation{
+							{NodeType: "Identifier", Value: "int", Children: []ASTExpectation{}},
+						},
+					},
+					{
+						NodeType: "InlineList",
+						Value:    "{1,2,3}",
+						Children: []ASTExpectation{
+							{NodeType: "IntLiteral", Value: "1", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "2", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "3", Children: []ASTExpectation{}},
+						},
+					},
 				},
 			},
 		},
@@ -208,8 +221,8 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 						NodeType: "MethodReference",
 						Value:    "substring(1, 3)",
 						Children: []ASTExpectation{
-							{NodeType: "Literal", Value: "1", Children: []ASTExpectation{}},
-							{NodeType: "Literal", Value: "3", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "1", Children: []ASTExpectation{}},
+							{NodeType: "IntLiteral", Value: "3", Children: []ASTExpectation{}},
 						},
 					},
 				},
@@ -334,7 +347,7 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 								Value:    "(#this > 10)",
 								Children: []ASTExpectation{
 									{NodeType: "VariableReference", Value: "#this", Children: []ASTExpectation{}},
-									{NodeType: "Literal", Value: "10", Children: []ASTExpectation{}},
+									{NodeType: "IntLiteral", Value: "10", Children: []ASTExpectation{}},
 								},
 							},
 						},
@@ -400,7 +413,7 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 								Value:    "(value < 27)",
 								Children: []ASTExpectation{
 									{NodeType: "PropertyOrFieldReference", Value: "value", Children: []ASTExpectation{}},
-									{NodeType: "Literal", Value: "27", Children: []ASTExpectation{}},
+									{NodeType: "IntLiteral", Value: "27", Children: []ASTExpectation{}},
 								},
 							},
 						},
@@ -465,8 +478,8 @@ func TestSpelParserMapAnalysis(t *testing.T) {
 				NodeType: "OpPlus",
 				Value:    "(1 + 1)",
 				Children: []ASTExpectation{
-					{NodeType: "Literal", Value: "1", Children: []ASTExpectation{}},
-					{NodeType: "Literal", Value: "1", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "1", Children: []ASTExpectation{}},
+					{NodeType: "IntLiteral", Value: "1", Children: []ASTExpectation{}},
 				},
 			},
 		},
