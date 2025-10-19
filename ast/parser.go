@@ -106,10 +106,6 @@ func (p *InternalSpelExpressionParser) ParseExpression(expressionString string) 
 	if err != nil {
 		return nil, fmt.Errorf("tokenization failed: %v", err)
 	}
-	for token, v := range tokens {
-		fmt.Printf("[%d] %s\n", token, v)
-	}
-
 	p.TokenStream = tokens
 	p.TokenStreamLength = len(tokens)
 	p.TokenStreamPointer = 0
@@ -301,6 +297,8 @@ func (p *InternalSpelExpressionParser) eatRelationalExpression() (SpelNode, erro
 			expr = NewOpLE(expr, right, startPos, endPos)
 		case MATCHES:
 			expr = NewOperatorMatches(expr, right, startPos, endPos)
+		case BETWEEN:
+			expr = NewOperatorBetween(expr, right, startPos, endPos)
 		default:
 			return nil, fmt.Errorf("unsupported relational operator: %s", relationalOperatorToken.Kind.String())
 		}
@@ -572,7 +570,63 @@ func (p *InternalSpelExpressionParser) eatDottedNode() (SpelNode, error) {
 		endPos := endToken.EndPos
 
 		// Create selection node (.?[ is always null-safe selection)
-		selection := NewSelection(true, criteria, token.StartPos, endPos)
+		selection := NewSelection(true, SelectionAll, criteria, token.StartPos, endPos)
+		p.push(selection)
+		return selection, nil
+	}
+
+	// Check for first selection expressions like .^[criteria] or ?^[criteria]
+	if p.peekToken(SELECT_FIRST) {
+		p.takeToken() // consume '^['
+
+		// Parse the selection criteria
+		criteria, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("error parsing first selection criteria: %v", err)
+		}
+
+		if criteria == nil {
+			return nil, fmt.Errorf("expected criteria in first selection expression")
+		}
+
+		// Expect closing bracket
+		if !p.peekToken(RSQUARE) {
+			return nil, fmt.Errorf("expected ']' to close first selection expression")
+		}
+
+		endToken := p.takeToken() // consume ']'
+		endPos := endToken.EndPos
+
+		// Create first selection node
+		selection := NewSelection(nullSafeNavigation, SelectionFirst, criteria, token.StartPos, endPos)
+		p.push(selection)
+		return selection, nil
+	}
+
+	// Check for last selection expressions like .$[criteria] or ?$[criteria]
+	if p.peekToken(SELECT_LAST) {
+		p.takeToken() // consume '$['
+
+		// Parse the selection criteria
+		criteria, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("error parsing last selection criteria: %v", err)
+		}
+
+		if criteria == nil {
+			return nil, fmt.Errorf("expected criteria in last selection expression")
+		}
+
+		// Expect closing bracket
+		if !p.peekToken(RSQUARE) {
+			return nil, fmt.Errorf("expected ']' to close last selection expression")
+		}
+
+		endToken := p.takeToken() // consume ']'
+		endPos := endToken.EndPos
+
+		// Create last selection node
+		selection := NewSelection(nullSafeNavigation, SelectionLast, criteria, token.StartPos, endPos)
 		p.push(selection)
 		return selection, nil
 	}
@@ -603,6 +657,37 @@ func (p *InternalSpelExpressionParser) eatDottedNode() (SpelNode, error) {
 		projection := NewProjection(projectionExpr, token.StartPos, endPos)
 		p.push(projection)
 		return projection, nil
+	}
+
+	// Check for safe navigation indexing like ?.[index]
+	if p.peekToken(LSQUARE) {
+		p.takeToken() // consume '['
+
+		// Parse the index expression
+		indexExpr, err := p.eatExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse index expression: %v", err)
+		}
+
+		if indexExpr == nil {
+			return nil, fmt.Errorf("expected index expression")
+		}
+
+		// Expect closing bracket
+		if !p.peekToken(RSQUARE) {
+			return nil, fmt.Errorf("expected ']' after index expression")
+		}
+		endBracket := p.takeToken() // consume ']'
+
+		// Create indexer node (null-safe if preceded by ?.)
+		var indexer *Indexer
+		if nullSafeNavigation {
+			indexer = NewNullSafeIndexer(indexExpr, token.StartPos, endBracket.EndPos)
+		} else {
+			indexer = NewIndexer(indexExpr, token.StartPos, endBracket.EndPos)
+		}
+		p.push(indexer)
+		return indexer, nil
 	}
 
 	if p.peekToken(IDENTIFIER) {
@@ -1085,7 +1170,7 @@ func (p *InternalSpelExpressionParser) maybeEatRelationalOperator() *Token {
 	}
 
 	switch token.Kind {
-	case EQ, NE, GT, GE, LT, LE:
+	case EQ, NE, GT, GE, LT, LE, BETWEEN, MATCHES, INSTANCEOF:
 		return p.takeToken()
 	case IDENTIFIER:
 		tokenValue := strings.ToLower(token.StringValue())

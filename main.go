@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/weaweawe01/ParserSpel/ast"
 )
 
@@ -9,7 +10,7 @@ func main() {
 	parser := ast.NewSpelExpressionParser()
 	// 测试普通表达式
 	normalExpressions := []string{
-		"{1,2,3,4}",
+		"{1,2,3,4,5,6}?.?[#this between {2, 4}]",
 	}
 	for i, expr := range normalExpressions {
 		tokenizer := ast.NewTokenizer(expr)

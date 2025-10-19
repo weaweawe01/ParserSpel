@@ -20,7 +20,7 @@ type Tokenizer struct {
 // Note that AND and OR are also alternative textual names, but they are handled later
 // This list must remain sorted since we use binary search
 var alternativeOperatorNames = []string{
-	"DIV", "EQ", "GE", "GT", "LE", "LT", "MOD", "NE", "NOT",
+	"BETWEEN", "DIV", "EQ", "GE", "GT", "LE", "LT", "MOD", "NE", "NOT",
 }
 
 // Flags for character classification
@@ -398,7 +398,7 @@ func (t *Tokenizer) lexIdentifier() error {
 	subarray := t.subarray(start, t.pos)
 
 	// Check if this is the alternative (textual) representation of an operator
-	if len(subarray) == 2 || len(subarray) == 3 {
+	if len(subarray) >= 2 && len(subarray) <= 7 { // Support 2-7 character operators
 		asString := strings.ToUpper(string(subarray))
 		idx := sort.SearchStrings(alternativeOperatorNames, asString)
 		if idx < len(alternativeOperatorNames) && alternativeOperatorNames[idx] == asString {
@@ -536,6 +536,8 @@ func (t *Tokenizer) raiseParseException(start int, msg string, inserts ...interf
 // getTokenKindByName returns the TokenKind for a given operator name
 func (t *Tokenizer) getTokenKindByName(name string) TokenKind {
 	switch name {
+	case "BETWEEN":
+		return BETWEEN
 	case "DIV":
 		return DIV
 	case "EQ":

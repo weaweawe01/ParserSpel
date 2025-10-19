@@ -839,3 +839,134 @@ func isTruthy(value interface{}) bool {
 		return true // Non-nil objects are truthy
 	}
 }
+
+// OpBetween represents the between operator (e.g., "x between {a, b}")
+type OperatorBetween struct {
+	*BinaryOperator
+}
+
+func NewOperatorBetween(left, right SpelNode, startPos, endPos int) *OperatorBetween {
+	return &OperatorBetween{
+		BinaryOperator: NewBinaryOperator(left, right, startPos, endPos),
+	}
+}
+
+func (op *OperatorBetween) GetValue(state *ExpressionState) (interface{}, error) {
+	leftVal, err := op.Left.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	rightVal, err := op.Right.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	// Right side should be a list/array with exactly 2 elements [min, max]
+	rightSlice, ok := rightVal.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("between operator requires a list on the right side")
+	}
+
+	if len(rightSlice) != 2 {
+		return nil, fmt.Errorf("between operator requires exactly 2 elements in the list")
+	}
+
+	min := rightSlice[0]
+	max := rightSlice[1]
+
+	// Compare left value with min and max
+	// leftVal >= min && leftVal <= max
+	minCmp := compareValuesForBetween(leftVal, min)
+	maxCmp := compareValuesForBetween(leftVal, max)
+
+	// Value is between if it's >= min and <= max
+	return minCmp >= 0 && maxCmp <= 0, nil
+}
+
+func (op *OperatorBetween) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := op.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}
+
+func (op *OperatorBetween) ToStringAST() string {
+	return "(" + op.Left.ToStringAST() + " between " + op.Right.ToStringAST() + ")"
+}
+
+// compareValuesForBetween compares two values and returns:
+// -1 if left < right, 0 if left == right, 1 if left > right
+func compareValuesForBetween(left, right interface{}) int {
+	// Handle nil values
+	if left == nil && right == nil {
+		return 0
+	}
+	if left == nil {
+		return -1
+	}
+	if right == nil {
+		return 1
+	}
+
+	// Try numeric comparison first
+	leftNum, leftIsNum := tryToNumber(left)
+	rightNum, rightIsNum := tryToNumber(right)
+
+	if leftIsNum && rightIsNum {
+		if leftNum > rightNum {
+			return 1
+		} else if leftNum < rightNum {
+			return -1
+		}
+		return 0
+	}
+
+	// Try string comparison
+	leftStr, leftIsStr := left.(string)
+	rightStr, rightIsStr := right.(string)
+
+	if leftIsStr && rightIsStr {
+		if leftStr > rightStr {
+			return 1
+		} else if leftStr < rightStr {
+			return -1
+		}
+		return 0
+	}
+
+	// Fallback: convert both to strings and compare
+	leftStrFallback := fmt.Sprintf("%v", left)
+	rightStrFallback := fmt.Sprintf("%v", right)
+
+	if leftStrFallback > rightStrFallback {
+		return 1
+	} else if leftStrFallback < rightStrFallback {
+		return -1
+	}
+	return 0
+}
+
+// tryToNumber attempts to convert a value to float64, returns (value, success)
+func tryToNumber(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case int:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case float32:
+		return float64(v), true
+	case float64:
+		return v, true
+	case string:
+		if num, err := strconv.ParseFloat(v, 64); err == nil {
+			return num, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}

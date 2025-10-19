@@ -735,6 +735,7 @@ func (i *InlineList) ToStringAST() string {
 type Indexer struct {
 	*SpelNodeImpl
 	IndexExpression SpelNode
+	NullSafe        bool // true for ?.[...], false for [...]
 }
 
 func NewIndexer(indexExpression SpelNode, startPos, endPos int) *Indexer {
@@ -745,6 +746,19 @@ func NewIndexer(indexExpression SpelNode, startPos, endPos int) *Indexer {
 	return &Indexer{
 		SpelNodeImpl:    NewSpelNodeImpl(startPos, endPos, children...),
 		IndexExpression: indexExpression,
+		NullSafe:        false,
+	}
+}
+
+func NewNullSafeIndexer(indexExpression SpelNode, startPos, endPos int) *Indexer {
+	children := []SpelNode{}
+	if indexExpression != nil {
+		children = append(children, indexExpression)
+	}
+	return &Indexer{
+		SpelNodeImpl:    NewSpelNodeImpl(startPos, endPos, children...),
+		IndexExpression: indexExpression,
+		NullSafe:        true,
 	}
 }
 
@@ -762,10 +776,14 @@ func (i *Indexer) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
 }
 
 func (i *Indexer) ToStringAST() string {
-	if i.IndexExpression != nil {
-		return "[" + i.IndexExpression.ToStringAST() + "]"
+	prefix := ""
+	if i.NullSafe {
+		prefix = "?."
 	}
-	return "[]"
+	if i.IndexExpression != nil {
+		return prefix + "[" + i.IndexExpression.ToStringAST() + "]"
+	}
+	return prefix + "[]"
 }
 
 // Assign represents assignment expressions like variable = value
@@ -821,13 +839,22 @@ func (a *Assign) ToStringAST() string {
 }
 
 // Selection represents selection expressions like collection.?[criteria]
+type SelectionKind int
+
+const (
+	SelectionAll   SelectionKind = iota // ?[...] - select all matching
+	SelectionFirst                      // ^[...] - select first matching
+	SelectionLast                       // $[...] - select last matching
+)
+
 type Selection struct {
 	*SpelNodeImpl
-	NullSafe bool     // true for .?[], false for .![...]
-	Criteria SpelNode // The selection criteria expression
+	NullSafe bool          // true for safe navigation (?.)
+	Kind     SelectionKind // Type of selection (all, first, last)
+	Criteria SpelNode      // The selection criteria expression
 }
 
-func NewSelection(nullSafe bool, criteria SpelNode, startPos, endPos int) *Selection {
+func NewSelection(nullSafe bool, kind SelectionKind, criteria SpelNode, startPos, endPos int) *Selection {
 	children := []SpelNode{}
 	if criteria != nil {
 		children = append(children, criteria)
@@ -835,6 +862,7 @@ func NewSelection(nullSafe bool, criteria SpelNode, startPos, endPos int) *Selec
 	return &Selection{
 		SpelNodeImpl: NewSpelNodeImpl(startPos, endPos, children...),
 		NullSafe:     nullSafe,
+		Kind:         kind,
 		Criteria:     criteria,
 	}
 }
@@ -857,10 +885,22 @@ func (s *Selection) ToStringAST() string {
 	if s.Criteria != nil {
 		criteriaStr = s.Criteria.ToStringAST()
 	}
+
+	prefix := ""
 	if s.NullSafe {
-		return ".?[" + criteriaStr + "]"
+		prefix = "?."
 	}
-	return ".![" + criteriaStr + "]"
+
+	switch s.Kind {
+	case SelectionAll:
+		return prefix + "?[" + criteriaStr + "]"
+	case SelectionFirst:
+		return prefix + "^[" + criteriaStr + "]"
+	case SelectionLast:
+		return prefix + "$[" + criteriaStr + "]"
+	default:
+		return prefix + "?[" + criteriaStr + "]"
+	}
 }
 
 // FunctionReference represents function calls like #functionName(args...)
