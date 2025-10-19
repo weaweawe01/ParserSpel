@@ -970,3 +970,77 @@ func tryToNumber(value interface{}) (float64, bool) {
 		return 0, false
 	}
 }
+
+// OpInc represents pre-increment operator (++expr)
+type OpInc struct {
+	*UnaryOperator
+}
+
+func NewOpInc(child SpelNode, startPos, endPos int) *OpInc {
+	return &OpInc{
+		UnaryOperator: NewUnaryOperator(child, startPos, endPos),
+	}
+}
+
+func (i *OpInc) ToStringAST() string {
+	return "++" + i.Child.ToStringAST()
+}
+
+func (i *OpInc) GetValue(state *ExpressionState) (interface{}, error) {
+	childValue, err := i.Child.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to number and increment
+	if num, ok := tryToNumber(childValue); ok {
+		return num + 1, nil
+	}
+
+	return nil, fmt.Errorf("cannot increment non-numeric value: %v", childValue)
+}
+
+func (i *OpInc) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := i.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}
+
+// OpDec represents pre-decrement operator (--expr)
+type OpDec struct {
+	*UnaryOperator
+}
+
+func NewOpDec(child SpelNode, startPos, endPos int) *OpDec {
+	return &OpDec{
+		UnaryOperator: NewUnaryOperator(child, startPos, endPos),
+	}
+}
+
+func (d *OpDec) ToStringAST() string {
+	return "--" + d.Child.ToStringAST()
+}
+
+func (d *OpDec) GetValue(state *ExpressionState) (interface{}, error) {
+	childValue, err := d.Child.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to number and decrement
+	if num, ok := tryToNumber(childValue); ok {
+		return num - 1, nil
+	}
+
+	return nil, fmt.Errorf("cannot decrement non-numeric value: %v", childValue)
+}
+
+func (d *OpDec) GetTypedValue(state *ExpressionState) (*TypedValue, error) {
+	value, err := d.GetValue(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewTypedValue(value), nil
+}

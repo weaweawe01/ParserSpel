@@ -155,6 +155,44 @@ func (p *InternalSpelExpressionParser) eatExpression() (SpelNode, error) {
 
 // eatTernaryExpression parses ternary conditional expressions (condition ? trueValue : falseValue)
 func (p *InternalSpelExpressionParser) eatTernaryExpression() (SpelNode, error) {
+	// Check for direct ternary without condition (e.g., "? 1 : 2")
+	if p.peekToken(QMARK) {
+		startPos := p.peekTokenRaw().StartPos
+		p.takeToken() // consume '?'
+
+		// Parse true value
+		trueValue, err := p.eatLogicalOrExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse true value in direct ternary expression: %v", err)
+		}
+
+		if trueValue == nil {
+			return nil, fmt.Errorf("expected expression after '?' in direct ternary")
+		}
+
+		// Expect colon
+		if !p.peekToken(COLON) {
+			return nil, fmt.Errorf("expected ':' in direct ternary expression")
+		}
+		p.takeToken() // consume ':'
+
+		// Parse false value
+		falseValue, err := p.eatLogicalOrExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse false value in direct ternary expression: %v", err)
+		}
+
+		if falseValue == nil {
+			return nil, fmt.Errorf("expected expression after ':' in direct ternary")
+		}
+
+		// Create ternary node with null condition (or a literal true)
+		// For direct ternary, we'll use a BooleanLiteral(true) as the implicit condition
+		condition := NewBooleanLiteral(true, startPos, startPos)
+		ternary := NewTernary(condition, trueValue, falseValue, startPos, falseValue.GetEndPosition())
+		return ternary, nil
+	}
+
 	expr, err := p.eatLogicalOrExpression()
 	if err != nil {
 		return nil, err
@@ -401,7 +439,7 @@ func (p *InternalSpelExpressionParser) eatPowerIncDecExpression() (SpelNode, err
 
 // eatUnaryExpression parses unary expressions
 func (p *InternalSpelExpressionParser) eatUnaryExpression() (SpelNode, error) {
-	if p.peekToken(NOT) || p.peekToken(PLUS) || p.peekToken(MINUS) {
+	if p.peekToken(NOT) || p.peekToken(PLUS) || p.peekToken(MINUS) || p.peekToken(INC) || p.peekToken(DEC) {
 		token := p.takeToken()
 		child, err := p.eatUnaryExpression()
 		if err != nil {
@@ -421,6 +459,12 @@ func (p *InternalSpelExpressionParser) eatUnaryExpression() (SpelNode, error) {
 		case MINUS:
 			// Unary minus
 			return NewUnaryOpMinus(child, token.StartPos, child.GetEndPosition()), nil
+		case INC:
+			// Pre-increment
+			return NewOpInc(child, token.StartPos, child.GetEndPosition()), nil
+		case DEC:
+			// Pre-decrement
+			return NewOpDec(child, token.StartPos, child.GetEndPosition()), nil
 		}
 	}
 
