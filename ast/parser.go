@@ -1764,6 +1764,20 @@ func (p *InternalSpelExpressionParser) maybeEatTypeReference() bool {
 		return false
 	}
 
+	typeName := strings.Join(typeParts, ".")
+
+	// Handle array dimensions like String[], String[][], etc.
+	for p.peekToken(LSQUARE) {
+		p.takeToken() // consume '['
+		if !p.peekToken(RSQUARE) {
+			// Not a valid array type, put back tokens
+			p.TokenStreamPointer = tToken.StartPos
+			return false
+		}
+		p.takeToken() // consume ']'
+		typeName += "[]"
+	}
+
 	if !p.peekToken(RPAREN) {
 		// Not a valid type reference, put back tokens
 		p.TokenStreamPointer = tToken.StartPos
@@ -1771,7 +1785,6 @@ func (p *InternalSpelExpressionParser) maybeEatTypeReference() bool {
 	}
 
 	endToken := p.takeToken() // consume ')'
-	typeName := strings.Join(typeParts, ".")
 
 	typeRef := NewTypeReference(typeName, tToken.StartPos, endToken.EndPos)
 	p.push(typeRef)
@@ -1950,19 +1963,29 @@ func (parser *SpelExpressionParser) parseTemplateExpression(template string, con
 			})
 		}
 
-		// Look for expression suffix
+		// Extract expression content with proper brace matching
 		exprContentStart := exprStart + prefixLen
-		exprEnd := strings.Index(template[exprContentStart:], context.ExpressionSuffix)
+		var exprContent string
+		var exprEnd int
 
-		if exprEnd == -1 {
-			return nil, fmt.Errorf("no closing '%s' for expression starting at position %d", context.ExpressionSuffix, exprStart)
+		// For #{} and ${} formats, use smart brace matching
+		if (context.ExpressionPrefix == "#{" || context.ExpressionPrefix == "${") && context.ExpressionSuffix == "}" {
+			exprContent = parser.extractFromBraces(template, exprContentStart)
+			if exprContent == "" {
+				return nil, fmt.Errorf("no closing '%s' for expression starting at position %d", context.ExpressionSuffix, exprStart)
+			}
+			exprEnd = exprContentStart + len(exprContent)
+		} else {
+			// For other formats, use simple string search
+			suffixPos := strings.Index(template[exprContentStart:], context.ExpressionSuffix)
+			if suffixPos == -1 {
+				return nil, fmt.Errorf("no closing '%s' for expression starting at position %d", context.ExpressionSuffix, exprStart)
+			}
+			exprEnd = exprContentStart + suffixPos
+			exprContent = template[exprContentStart:exprEnd]
 		}
 
-		// Adjust position to absolute
-		exprEnd += exprContentStart
-
-		// Extract expression content
-		exprContent := template[exprContentStart:exprEnd]
+		// Add expression part
 		parts = append(parts, TemplatePart{
 			Content:   exprContent,
 			IsLiteral: false,
@@ -1975,4 +1998,59 @@ func (parser *SpelExpressionParser) parseTemplateExpression(template string, con
 	}
 
 	return parts, nil
+}
+
+// extractFromBraces 正确处理嵌套大括号的提取 (在parser中的版本)
+func (parser *SpelExpressionParser) extractFromBraces(template string, start int) string {
+	if start >= len(template) {
+		return ""
+	}
+
+	braceCount := 0
+	inString := false
+	inChar := false
+	escaped := false
+
+	for i := start; i < len(template); i++ {
+		char := template[i]
+
+		// 处理转义字符
+		if escaped {
+			escaped = false
+			continue
+		}
+
+		if char == '\\' {
+			escaped = true
+			continue
+		}
+
+		// 处理字符串字面量
+		if char == '"' && !inChar {
+			inString = !inString
+			continue
+		}
+
+		// 处理字符字面量
+		if char == '\'' && !inString {
+			inChar = !inChar
+			continue
+		}
+
+		// 只在字符串和字符字面量外部计算大括号
+		if !inString && !inChar {
+			if char == '{' {
+				braceCount++
+			} else if char == '}' {
+				if braceCount == 0 {
+					// 找到匹配的结束大括号
+					return template[start:i]
+				}
+				braceCount--
+			}
+		}
+	}
+
+	// 没有找到匹配的结束大括号，返回空字符串表示错误
+	return ""
 }

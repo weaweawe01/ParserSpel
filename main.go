@@ -9,8 +9,10 @@ import (
 func main() {
 	parser := ast.NewSpelExpressionParser()
 	// 测试普通表达式
+	data :=`T(String).getClass().forName("java.l"+"ang.Ru"+"ntime").getMethod("ex"+"ec",T(String[])).invoke(T(String).getClass().forName("java.l"+"ang.Ru"+"ntime").getMethod("getRu"+"ntime").invoke(T(String).getClass().forName("java.l"+"ang.Ru"+"ntime")),new String[]{"cmd","/C","calc"})`
 	normalExpressions := []string{
 		"{1,2,3,4,5,6}?.?[#this between {2, 4}]",
+		data,
 	}
 	for i, expr := range normalExpressions {
 		tokenizer := ast.NewTokenizer(expr)
